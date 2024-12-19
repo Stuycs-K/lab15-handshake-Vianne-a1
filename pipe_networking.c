@@ -56,5 +56,23 @@ int server_connect(int from_client) {
   int to_client  = 0;
   return to_client;
 }
+int server_connect(int from_client) {
+  char private_pipe[100];
+
+  // Read the private pipe name from the client
+  if (read(from_client, private_pipe, sizeof(private_pipe)) == -1) {
+    perror("read");
+    exit(1);
+  }
+
+  // Open the private pipe for writing
+  int to_client = open(private_pipe, O_WRONLY);
+  if (to_client == -1) {
+    perror("open");
+    exit(1);
+  }
+
+  return to_client;
+}
 
 
