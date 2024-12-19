@@ -4,7 +4,7 @@
 /*=========================
   server_setup
 
-  creates the WKP and opens it, waiting for a  connection.
+  creates the WKP and opens it, waiting for a connection.
   removes the WKP once a connection has been made
 
   returns the file descriptor for the upstream pipe.
