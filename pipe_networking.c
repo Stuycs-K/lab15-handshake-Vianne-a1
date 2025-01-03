@@ -1,3 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <string.h>
+#include <errno.h>
 #include "pipe_networking.h"
 
 /*=========================
@@ -6,7 +14,7 @@
 int server_setup() {
     int from_client;
 
-    // Create the well-known pipe (WKP)
+    // Create the well-known pipe (WKP) if it doesn't exist
     if (mkfifo(WKP, 0644) == -1) {
         if (errno != EEXIST) {
             perror("mkfifo");
@@ -29,8 +37,18 @@ int server_setup() {
 /*=========================
   server_handshake
   =========================*/
-int server_handshake(int from_client, int *to_client) {
+int server_handshake(int *to_client) {
+    int from_client;
     char private_pipe[256];
+
+    // Open the WKP for reading (ensure WKP exists)
+    from_client = open(WKP, O_RDONLY);
+    if (from_client == -1) {
+        perror("open");
+        exit(1);
+    }
+
+    printf("[server] Waiting for client connection...\n");
 
     // Read the name of the private pipe from the client
     if (read(from_client, private_pipe, sizeof(private_pipe)) <= 0) {
@@ -54,20 +72,6 @@ int server_handshake(int from_client, int *to_client) {
     }
 
     printf("[server] Sent ACK to client.\n");
-
-    // Receive final acknowledgment from the client
-    char ack_response[256];
-    if (read(from_client, ack_response, sizeof(ack_response)) <= 0) {
-        perror("read");
-        exit(1);
-    }
-
-    if (strcmp(ack_response, "ACK") != 0) {
-        fprintf(stderr, "[server] Handshake failed: invalid acknowledgment from client.\n");
-        exit(1);
-    }
-
-    printf("[server] Handshake complete.\n");
 
     return from_client;
 }
@@ -124,27 +128,34 @@ int client_handshake(int *to_server) {
 
     printf("[client] Received ACK from server.\n");
 
-    // Send final acknowledgment to the server
-    if (write(*to_server, "ACK", 3) == -1) {
-        perror("write");
-        exit(1);
-    }
-
-    printf("[client] Handshake complete.\n");
-
-    // Remove the private pipe
-    if (remove(private_pipe) == -1) {
-        perror("remove");
-    }
-
     return from_server;
+}
+
+/*=========================
+  server_connect
+  =========================*/
+int server_connect(int from_client) {
+    char buffer[BUFFER_SIZE];
+
+    // Example of handling a single client connection
+    if (read(from_client, buffer, sizeof(buffer)) > 0) {
+        printf("[server] Received: %s\n", buffer);
+
+        // Here, handle the different message types
+        if (strncmp(buffer, "EXIT", 4) == 0) {
+            printf("[server] Client requested exit.\n");
+            return -1; // Exit the connection
+        }
+    }
+
+    perror("read");
+    return 0; // Continue waiting for messages
 }
 
 /*=========================
   multi_server_setup
   =========================*/
 int multi_server_setup() {
-    // Implementation for setting up a multi-server environment
     int from_client = server_setup();
     printf("[multi-server] Multi-server setup complete.\n");
     return from_client;
@@ -154,7 +165,23 @@ int multi_server_setup() {
   multi_server_connect
   =========================*/
 int multi_server_connect(int from_client, struct message m) {
-    // Implementation for connecting clients in a multi-server setup
+    // Use 'from_client' if necessary or remove it if not needed.
+    (void) from_client;  // Prevent unused parameter warning
+
+    // Handle different message types
     printf("[multi-server] Received message type: %d, data: %s\n", m.type, m.data);
-    return 0; // Placeholder for actual connection logic
+
+    // Respond based on message type
+    switch (m.type) {
+        case MESSAGE:
+            printf("[multi-server] Message: %s\n", m.data);
+            break;
+        case EXIT:
+            printf("[multi-server] Client requested exit.\n");
+            return -1; // Close the connection
+        default:
+            printf("[multi-server] Unknown message type: %d\n", m.type);
+    }
+
+    return 0; // Continue communication
 }
