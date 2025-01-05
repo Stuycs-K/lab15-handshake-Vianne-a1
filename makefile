@@ -1,29 +1,17 @@
-# Makefile for pipe networking project
-
-# Compiler and flags
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -g
 
-# Targets
 all: compile
 
-compile: client server
+compile:
+	$(CC) $(CFLAGS) -o server basic_server.c
+	$(CC) $(CFLAGS) -o client basic_client.c
 
-client: basic_client.o pipe_networking.o
-	$(CC) -o client basic_client.o pipe_networking.o
+server:
+	$(CC) $(CFLAGS) -o forking_server forking_server.c
 
-server: basic_server.o pipe_networking.o
-	$(CC) -o server basic_server.o pipe_networking.o
-
-basic_client.o: basic_client.c pipe_networking.h
-	$(CC) $(CFLAGS) -c basic_client.c
-
-basic_server.o: basic_server.c pipe_networking.h
-	$(CC) $(CFLAGS) -c basic_server.c
-
-pipe_networking.o: pipe_networking.c pipe_networking.h
-	$(CC) $(CFLAGS) -c pipe_networking.c
+client:
+	$(CC) $(CFLAGS) -o client client.c
 
 clean:
-	rm -f *.o client server
-	rm -f *~
+	rm -f server client forking_server basic_server basic_client wkp client_pipe
