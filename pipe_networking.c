@@ -1,187 +1,137 @@
+#include "pipe_networking.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <signal.h>
 #include <string.h>
-#include <errno.h>
-#include "pipe_networking.h"
 
-/*=========================
-  server_setup
-  =========================*/
-int server_setup() {
-    int from_client;
+#define WKP_NAME "wkp"  // Well Known Pipe (WKP)
 
-    // Create the well-known pipe (WKP) if it doesn't exist
-    if (mkfifo(WKP, 0644) == -1) {
-        if (errno != EEXIST) {
-            perror("mkfifo");
-            exit(1);
-        }
+// Function to create a named FIFO (pipe)
+int create_fifo(const char *name) {
+    if (mkfifo(name, 0666) == -1) {
+        perror("Error creating FIFO");
+        exit(1);
     }
+    return 0;
+}
 
-    // Open the WKP for reading
-    from_client = open(WKP, O_RDONLY);
-    if (from_client == -1) {
-        perror("open");
+// Function to remove a named FIFO (pipe)
+void remove_fifo(const char *name) {
+    if (remove(name) == -1) {
+        perror("Error removing FIFO");
+        exit(1);
+    }
+}
+
+// Client handshake
+int client_handshake(int *to_server) {
+    char pipe_name[100];
+    int pid = getpid();
+
+    // Create a private FIFO (client's pipe) using the client's PID as the name
+    sprintf(pipe_name, "%d", pid);
+    create_fifo(pipe_name);
+
+    // Connect to the server's Well Known Pipe (WKP)
+    *to_server = open(WKP_NAME, O_WRONLY);
+    if (*to_server == -1) {
+        perror("Error opening WKP");
         exit(1);
     }
 
-    printf("[server] WKP created and waiting for connection...\n");
+    // Send the client's PID to the server
+    write(*to_server, &pid, sizeof(pid));
+    close(*to_server);
 
-    return from_client;
+    // Wait for the server to send data via the private pipe
+    int from_server = open(pipe_name, O_RDONLY);
+    if (from_server == -1) {
+        perror("Error opening client's private pipe");
+        exit(1);
+    }
+
+    // Read the random number or data from the server
+    int x;
+    read(from_server, &x, sizeof(x));
+    printf("Client received: %d\n", x);
+
+    close(from_server);
+    remove_fifo(pipe_name);  // Clean up the private pipe
+    return 0;
 }
 
-/*=========================
-  server_handshake
-  =========================*/
+// Server handshake half
+int server_handshake_half(int *to_client, int from_client) {
+    char pipe_name[100];
+
+    // Get the client's PID from the message
+    int pid;
+    read(from_client, &pid, sizeof(pid));
+
+    // Create the private FIFO for the client
+    sprintf(pipe_name, "%d", pid);
+    create_fifo(pipe_name);
+
+    // Open the private pipe to send a response back to the client
+    *to_client = open(pipe_name, O_WRONLY);
+    if (*to_client == -1) {
+        perror("Error opening client's private pipe");
+        exit(1);
+    }
+
+    // Send a random number to the client
+    int x = rand() % 101;  // Random number between 0 and 100
+    write(*to_client, &x, sizeof(x));
+    close(*to_client);
+
+    return 0;
+}
+
+// Server handshake
 int server_handshake(int *to_client) {
     int from_client;
-    char private_pipe[256];
 
-    // Open the WKP for reading (ensure WKP exists)
-    from_client = open(WKP, O_RDONLY);
+    // Open the Well Known Pipe (WKP) and wait for a client to connect
+    from_client = open(WKP_NAME, O_RDONLY);
     if (from_client == -1) {
-        perror("open");
+        perror("Error opening WKP");
         exit(1);
     }
 
-    printf("[server] Waiting for client connection...\n");
+    // Remove the WKP after connection is established
+    remove_fifo(WKP_NAME);
 
-    // Read the name of the private pipe from the client
-    if (read(from_client, private_pipe, sizeof(private_pipe)) <= 0) {
-        perror("read");
-        exit(1);
-    }
+    // Complete the handshake with the client
+    server_handshake_half(to_client, from_client);
 
-    printf("[server] Received private pipe name: %s\n", private_pipe);
-
-    // Open the private pipe for writing
-    *to_client = open(private_pipe, O_WRONLY);
-    if (*to_client == -1) {
-        perror("open");
-        exit(1);
-    }
-
-    // Send acknowledgment to the client
-    if (write(*to_client, "ACK", 3) == -1) {
-        perror("write");
-        exit(1);
-    }
-
-    printf("[server] Sent ACK to client.\n");
-
-    return from_client;
+    close(from_client);  // Close the connection
+    return 0;
 }
 
-/*=========================
-  client_handshake
-  =========================*/
-int client_handshake(int *to_server) {
-    int from_server;
-    char private_pipe[256];
-
-    // Generate private pipe name
-    sprintf(private_pipe, "private_%d", getpid());
-
-    // Create the private pipe
-    if (mkfifo(private_pipe, 0644) == -1) {
-        perror("mkfifo");
-        exit(1);
-    }
-
-    // Open the well-known pipe for writing
-    *to_server = open(WKP, O_WRONLY);
-    if (*to_server == -1) {
-        perror("open");
-        exit(1);
-    }
-
-    // Send the private pipe name to the server
-    if (write(*to_server, private_pipe, strlen(private_pipe) + 1) == -1) {
-        perror("write");
-        exit(1);
-    }
-
-    printf("[client] Sent private pipe name to server.\n");
-
-    // Open the private pipe for reading
-    from_server = open(private_pipe, O_RDONLY);
-    if (from_server == -1) {
-        perror("open");
-        exit(1);
-    }
-
-    // Read the server's acknowledgment
-    char ack[256];
-    if (read(from_server, ack, sizeof(ack)) <= 0) {
-        perror("read");
-        exit(1);
-    }
-
-    if (strcmp(ack, "ACK") != 0) {
-        fprintf(stderr, "[client] Handshake failed: invalid acknowledgment from server.\n");
-        exit(1);
-    }
-
-    printf("[client] Received ACK from server.\n");
-
-    return from_server;
+// Signal handler for SIGINT to clean up WKP
+void handle_sigint(int sig) {
+    remove_fifo(WKP_NAME);
+    printf("WKP removed and server shutting down.\n");
+    exit(0);
 }
 
-/*=========================
-  server_connect
-  =========================*/
-int server_connect(int from_client) {
-    char buffer[BUFFER_SIZE];
+int main() {
+    // Handle SIGINT for graceful shutdown
+    signal(SIGINT, handle_sigint);
 
-    // Example of handling a single client connection
-    if (read(from_client, buffer, sizeof(buffer)) > 0) {
-        printf("[server] Received: %s\n", buffer);
+    int to_client, from_client;
 
-        // Here, handle the different message types
-        if (strncmp(buffer, "EXIT", 4) == 0) {
-            printf("[server] Client requested exit.\n");
-            return -1; // Exit the connection
-        }
-    }
+    // Create the Well Known Pipe (WKP) for clients to connect
+    create_fifo(WKP_NAME);
 
-    perror("read");
-    return 0; // Continue waiting for messages
-}
+    // Server-side: Handle the handshake with a client
+    server_handshake(&from_client);
 
-/*=========================
-  multi_server_setup
-  =========================*/
-int multi_server_setup() {
-    int from_client = server_setup();
-    printf("[multi-server] Multi-server setup complete.\n");
-    return from_client;
-}
+    // Cleanup: Remove the WKP after communication ends
+    remove_fifo(WKP_NAME);
 
-/*=========================
-  multi_server_connect
-  =========================*/
-int multi_server_connect(int from_client, struct message m) {
-    // Use 'from_client' if necessary or remove it if not needed.
-    (void) from_client;  // Prevent unused parameter warning
-
-    // Handle different message types
-    printf("[multi-server] Received message type: %d, data: %s\n", m.type, m.data);
-
-    // Respond based on message type
-    switch (m.type) {
-        case MESSAGE:
-            printf("[multi-server] Message: %s\n", m.data);
-            break;
-        case EXIT:
-            printf("[multi-server] Client requested exit.\n");
-            return -1; // Close the connection
-        default:
-            printf("[multi-server] Unknown message type: %d\n", m.type);
-    }
-
-    return 0; // Continue communication
+    return 0;
 }

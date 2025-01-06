@@ -1,40 +1,34 @@
+#include "pipe_networking.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <string.h>
-
-#define WKP "wkp"
 
 void handle_sigint(int sig) {
-    remove(WKP);  // Remove the WKP before exiting.
-    printf("\nServer exiting gracefully...\n");
+    remove_fifo("wkp");
+    printf("WKP removed and server shutting down.\n");
     exit(0);
 }
 
 int main() {
+    // Handle SIGINT for graceful shutdown
     signal(SIGINT, handle_sigint);
-    mkfifo(WKP, 0666);  // Create the Well Known Pipe (WKP).
+
+    int to_client, from_client;
+
+    // Create the Well Known Pipe (WKP) for clients to connect
+    create_fifo("wkp");
 
     while (1) {
-        printf("Server waiting for a client...\n");
+        // Server-side: Handle the handshake with a client
+        server_handshake(&from_client);
 
-        int from_client = open(WKP, O_RDONLY);  // Wait for a client to connect.
+        // Sleep for 1 second before accepting another client
+        sleep(1);
 
-        if (from_client == -1) {
-            perror("Error accepting connection");
-            continue;
-        }
-
-        // Handle the client (simple communication example):
-        int x = rand() % 101;
-        printf("Sending random number: %d\n", x);
-        // Send the number to the client (using a private pipe or some other communication).
-
-        close(from_client);  // Close the connection after sending the data.
+        // Cleanup: Remove the WKP after communication ends
+        remove_fifo("wkp");
+        create_fifo("wkp");
     }
 
     return 0;
