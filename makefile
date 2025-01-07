@@ -1,22 +1,34 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -g
-TARGETS = basic_client basic_server persistant_server forking_server
+all: client server
 
-all: $(TARGETS)
+compile: basic_client.o pipe_networking.o forking_server.o pipe_networking.o
+	gcc -o CLIENT basic_client.o pipe_networking.o
+	gcc -o SERVER forking_server.o pipe_networking.o
 
-client: basic_client.c pipe_networking.c
-	$(CC) $(CFLAGS) -o client basic_client.c pipe_networking.c
 
-server: basic_server.c pipe_networking.c
-	$(CC) $(CFLAGS) -o server basic_server.c pipe_networking.c
+server: SERVER
+	./SERVER
 
-persistant_server: persistant_server.c pipe_networking.c
-	$(CC) $(CFLAGS) -o persistant_server persistant_server.c pipe_networking.c
+client: CLIENT
+	./CLIENT
 
-forking_server: forking_server.c pipe_networking.c
-	$(CC) $(CFLAGS) -o forking_server forking_server.c pipe_networking.c
+basic_client.o: basic_client.c pipe_networking.h
+	gcc -c basic_client.c
+
+basic_server.o: basic_server.c pipe_networking.h
+	gcc -c basic_server.c
+
+persistant_server.o: persistant_server.c pipe_networking.h
+	gcc -c persistant_server.c
+
+forking_server.o: forking_server.c pipe_networking.h
+	gcc -c forking_server.c 
+
+
+pipe_networking.o: pipe_networking.c pipe_networking.h
+	gcc -c pipe_networking.c
 
 clean:
-	rm -f $(TARGETS)
-	rm -f *.o
-	rm -f wkp
+	rm SERVER
+	rm CLIENT
+	rm *.o
+	rm *~

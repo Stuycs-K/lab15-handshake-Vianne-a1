@@ -1,99 +1,63 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "pipe_networking.h"
 
-int create_fifo(const char *name) {
+int create_fifo(char *name) {
+    // Create the named pipe (FIFO)
     if (mkfifo(name, 0666) == -1) {
-        perror("Error creating FIFO");
+        perror("mkfifo");
         return -1;
     }
     return 0;
 }
 
-void remove_fifo(const char *name) {
-    if (unlink(name) == -1) {
-        perror("Error removing FIFO");
+int open_fifo(char *name, int flags) {
+    // Open the named pipe (FIFO)
+    int fd = open(name, flags);
+    if (fd == -1) {
+        perror("open");
+        return -1;
     }
+    return fd;
 }
 
-int server_handshake(int *to_client) {
-    char buffer[BUFFER_SIZE];
+int server_handshake(char *wkp_name) {
+    int from_client;
 
-    // Open WKP and wait for the client to connect
-    int from_client = open(WKP, O_RDONLY);
+    // Open the WKP and wait for the client
+    from_client = open_fifo(wkp_name, O_RDONLY);
     if (from_client == -1) {
-        perror("Error opening WKP");
-        exit(1);
+        return -1;
     }
 
-    // Read private pipe name from client
-    if (read(from_client, buffer, BUFFER_SIZE) <= 0) {
-        perror("Error reading from WKP");
-        exit(1);
+    // Read the client's private pipe name
+    char client_pipe_name[256];
+    read(from_client, client_pipe_name, sizeof(client_pipe_name));
+
+    // Remove the WKP after accepting a client
+    remove_fifo(wkp_name);
+
+    // Create and open the client's private pipe for communication
+    int to_client = open_fifo(client_pipe_name, O_WRONLY);
+    if (to_client == -1) {
+        return -1;
     }
 
-    // Remove WKP after reading
-    remove_fifo(WKP);
+    // Send the first message to the client (e.g., random number or handshake data)
+    int random_number = rand() % 101;
+    write(to_client, &random_number, sizeof(int));
 
-    // Open private pipe and send SYN_ACK
-    *to_client = open(buffer, O_WRONLY);
-    if (*to_client == -1) {
-        perror("Error opening private pipe");
-        exit(1);
-    }
-
-    int secret = rand() % 1000; // Random value for handshake
-    write(*to_client, &secret, sizeof(secret));
-
-    // Read ACK from client
-    int ack;
-    if (read(from_client, &ack, sizeof(ack)) <= 0 || ack != secret + 1) {
-        perror("Error in handshake ACK");
-        exit(1);
-    }
-
-    printf("Handshake complete.\n");
+    // Return the client file descriptor for communication
     return from_client;
 }
 
-int client_handshake(int *to_server) {
-    char private_pipe[BUFFER_SIZE];
-    sprintf(private_pipe, "%d", getpid());
-
-    // Create private pipe
-    if (create_fifo(private_pipe) == -1) {
-        perror("Error creating private pipe");
-        exit(1);
+void remove_fifo(char *name) {
+    // Remove the named pipe (FIFO)
+    if (unlink(name) == -1) {
+        perror("unlink");
     }
-
-    // Connect to WKP
-    *to_server = open(WKP, O_WRONLY);
-    if (*to_server == -1) {
-        perror("Error opening WKP");
-        exit(1);
-    }
-
-    // Send private pipe name to server
-    write(*to_server, private_pipe, BUFFER_SIZE);
-
-    // Open private pipe and wait for SYN_ACK
-    int from_server = open(private_pipe, O_RDONLY);
-    if (from_server == -1) {
-        perror("Error opening private pipe");
-        exit(1);
-    }
-
-    int secret;
-    if (read(from_server, &secret, sizeof(secret)) <= 0) {
-        perror("Error reading SYN_ACK");
-        exit(1);
-    }
-
-    // Send ACK to server
-    int ack = secret + 1;
-    write(*to_server, &ack, sizeof(ack));
-
-    // Remove private pipe
-    remove_fifo(private_pipe);
-
-    printf("Handshake complete.\n");
-    return from_server;
 }
