@@ -4,17 +4,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <string.h>
+#include <signal.h>
 
-// Client and server handshake functions
-int client_handshake(int *to_server);
+#define BUFFER_SIZE 256 // Define the size of the buffer
+#define WKP "wkp"       // Define the name of the well-known pipe
+
+// Function prototypes
 int server_handshake(int *to_client);
-
-// Helper functions for creating and removing pipes
-int create_fifo(const char *name);
-void remove_fifo(const char *name);
+int client_handshake(int *to_server);
+void handle_sigint(int sig);
 
 #endif
